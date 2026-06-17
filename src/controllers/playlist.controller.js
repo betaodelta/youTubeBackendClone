@@ -4,6 +4,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { User } from "../models/user.model.js";
+import { Video } from "../models/video.model.js";
 
 const createPlaylist = asyncHandler(async (req, res) => {
   const { name, description } = req.body;
@@ -177,22 +178,194 @@ const addVideoToPlaylist = asyncHandler(async (req, res) => {
   //4. now get playlist with playlistId
   //5. then simply create obj and add it
   //6. send the response
+  if (!playlistId || !videoId) {
+    throw new ApiError(400, "PlaylistId and VideoId are required");
+  }
+
+  const video = await Video.findById(videoId);
+  if (!video) {
+    throw new ApiError(404, "Video not found");
+  }
+
+  const playlist = await Playlist.findById(playlistId);
+  if (!playlist) {
+    throw new ApiError(404, "Playlist not found");
+  }
+
+  if (playlist.owner.toString() !== req.user._id.toString()) {
+    throw new ApiError(403, "You are not authorized to modify this playlist");
+  }
+
+  if (playlist.videos.includes(videoId)) {
+    throw new ApiError(400, "Video already exists in playlist");
+  }
+
+  const updatedPlaylist = await Playlist.findByIdAndUpdate(
+    playlistId,
+    { $push: { videos: videoId } },
+    { new: true }
+  );
+
+  if (!updatedPlaylist) {
+    throw new ApiError(500, "Something went wrong while adding video");
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: updatedPlaylist,
+    message: "Video added to playlist successfully",
+  });
 });
 
 const removeVideoFromPlaylist = asyncHandler(async (req, res) => {
   const { playlistId, videoId } = req.params;
   // TODO: remove video from playlist
+  //steps included
+  //1. Get videoId , playlistId from req. params
+  //2. Validation check
+  //3. find the video from videoId
+  //4. Check the user and owner of the playlist must same if not then send the error that not allowed to delete the video from the playlist
+  //5. now if that video is alreday deleted from my playlist then throw error that video has been alreday deleted
+  //6. now delete the video
+  //7. send the response
+
+  if (!playlistId) {
+    throw new ApiError(400, "PlaylistId is required");
+  }
+  if (!videoId) {
+    throw new ApiError(400, "VideoId is required");
+  }
+  const video = await Video.findById(videoId);
+  if (!video) {
+    throw new ApiError(404, "Video with this id doesn't exists");
+  }
+  const playlist = await Playlist.findById(playlistId);
+  if (!playlist) {
+    throw new ApiError(404, "Playlist with this ID doesn't exists");
+  }
+  if (playlist.owner.toString() !== req.user._id.toString()) {
+    throw new ApiError(
+      404,
+      "You are not allowed to delete this video from this playlist"
+    );
+  }
+  if (!playlist.videos.includes(video)) {
+    throw new ApiError(404, "This video doesn't exists in this playlist");
+  }
+  const updatedPlaylist = await Playlist.findByIdAndUpdate(
+    playlistId,
+    {
+      $pull: {
+        videos: videoId,
+      },
+    },
+    {
+      new: true,
+    }
+  );
+  if (!updatedPlaylist) {
+    throw new ApiError(500, "Something went wrong ");
+  }
+  return res.status(200).json({
+    success: true,
+    data: updatedPlaylist,
+    message: "Video removed from the playlist successfully",
+  });
 });
 
 const deletePlaylist = asyncHandler(async (req, res) => {
   const { playlistId } = req.params;
   // TODO: delete playlist
+  //steps included
+  //1. Get playlistId from req.params
+  //2. if not present then throw error
+  //3. get the playlist from palylistId
+  //4. if not present then throw error
+  //5. if owner and req.user._id deoens't matched then u r not allowed to delete this playlist
+  //6. give the updated playlist with delete with this playulist id and here i wikll use $pull
+  //7. if that updated playlist doesn't exists then give error
+  //8. return the response
+  if (!playlistId) {
+    throw new ApiError(400, "PlaylistId is required");
+  }
+
+  // Step 3 & 4 — find playlist + check exists
+  const playlist = await Playlist.findById(playlistId);
+  if (!playlist) {
+    throw new ApiError(404, "Playlist not found");
+  }
+
+  // Step 5 — ownership check
+  if (playlist.owner.toString() !== req.user._id.toString()) {
+    throw new ApiError(403, "You are not authorized to delete this playlist");
+  }
+
+  // Step 6 — delete entire playlist document
+  await Playlist.findByIdAndDelete(playlistId);
+
+  // Step 8 — response
+  return res.status(200).json({
+    success: true,
+    message: "Playlist deleted successfully",
+  });
 });
 
 const updatePlaylist = asyncHandler(async (req, res) => {
   const { playlistId } = req.params;
   const { name, description } = req.body;
   //TODO: update playlist
+  //steps included for update are
+  //1. get playlistId from req.params
+  //2. get name , description from my req.body
+  //3. if not prent then throw error
+  //4. now get playlist from playlistId
+  //5. if not prsent then throw error
+  //6. now i have access DB of playlist now check owner and req.user._id same
+  //7. now just override the values of playlist.name wityh this name as well as oplaylist.description = description
+  //8. send the updated playlist response
+  //9. before sending just check the valiodation that it should be exist
+  // Step 3 — validation first
+  if (!name?.trim()) {
+    throw new ApiError(400, "Playlist name is required");
+  }
+  if (!description?.trim()) {
+    throw new ApiError(400, "Playlist description is required");
+  }
+
+  // Step 4 & 5 — find + check exists
+  const playlist = await Playlist.findById(playlistId);
+  if (!playlist) {
+    throw new ApiError(404, "Playlist not found");
+  }
+
+  // Step 6 — ownership check
+  if (playlist.owner.toString() !== req.user._id.toString()) {
+    throw new ApiError(403, "You are not authorized to update this playlist");
+  }
+
+  // Step 7 — update using $set
+  const updatedPlaylist = await Playlist.findByIdAndUpdate(
+    playlistId,
+    {
+      $set: {
+        name, // update name
+        description, //  update description
+      },
+    },
+    { new: true } //  return updated document
+  );
+
+  // Step 8 — check update successful
+  if (!updatedPlaylist) {
+    throw new ApiError(500, "Something went wrong while updating playlist");
+  }
+
+  // Step 9 — send response
+  return res.status(200).json({
+    success: true,
+    data: updatedPlaylist,
+    message: "Playlist updated successfully",
+  });
 });
 
 export {
